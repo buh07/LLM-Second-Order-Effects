@@ -50,3 +50,19 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Models and large files
+models/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+2OE_env/
+
+# Experiment outputs
+checkpoints/
+results/
+outputs/
+wandb/
