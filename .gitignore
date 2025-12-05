@@ -66,3 +66,6 @@ checkpoints/
 results/
 outputs/
 wandb/
+phase1_outputs/
+phase2_outputs/
+phase3_gpt2.log*

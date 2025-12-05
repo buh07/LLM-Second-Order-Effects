@@ -35,9 +35,19 @@
 - [x] Prepare a math/logic description lexicon (start with a curated list + GSM8K rationales) and embed it through the same text encoder the LLM uses, mirroring `compute_text_set_projection.py` so that `compute_sparse_decomposition.py` can run unmodified aside from pointing at the new vocabulary file (`CLIP-2OE/compute_text_set_projection.py:21`).
 - [x] Run `compute_sparse_decomposition.py` with the math lexicon and verify reconstruction quality using the `--evaluate` flag once the PCA outputs exist, ensuring reconstruction accuracy on the validation split is within 1% of the unmodified model as in the CLIP ablation benchmarks (`CLIP-2OE/compute_sparse_decomposition.py:162`).
 - [x] Adapt `compute_ablations.py` to the math dataset so we can test (1) full mean ablation, (2) removing "significant" neurons (per PCA norm threshold), (3) removing "insignificant" neurons, and (4) substituting rank-1 reconstructions, mirroring the CLIP logic for a correctness metric (`CLIP-2OE/compute_ablations.py:126`).
+- [ ] Generate required artifacts for Phase 2 runs:
+  - [x] Run `phase1/evaluate_model.py` for each dataset split to cache prompts, representations, and initial correctness labels.
+  - [x] Run `phase2/compute_representations.py` on the same splits to save token-level residual tensors.
+  - [x] Run `phase2/compute_correctness_projection.py` (with `--label_source phase1` or `phase2`) to emit `*_correctness_direction.npy` and aligned labels.
+  - [x] Run `phase2/compute_second_order_neuron_prs.py` per target layer/split to obtain `*_second_order_layer{L}.npy` tensors and correctness scores.
+  - [x] Run `phase2/compute_pcas.py` on the training tensors to produce `*_pca.npy` / `*_norm.npy`.
+  - [x] Run `phase2/compute_text_set_projection.py` once per model to embed `phase2/math_lexicon.txt`.
+  - [x] Run `phase2/compute_sparse_decomposition.py --evaluate` with the math lexicon to produce sparse codes and reconstruction metrics.
+  - [x] Run `phase2/compute_ablations.py` on the validation split to gather mean/ significant/insignificant/rank-1 correctness deltas.
+- [ ] Repeat the artifact generation steps above for additional LLM baselines beyond GPT-2 (currently only GPT-2 has been processed).
 
 ## Phase 3 – Run the Minimal-Change Experiment and Collect Baselines
-- [ ] Execute the full pipeline end-to-end on the chosen baseline LLM: representations → correctness direction → second-order tensors (for selected layers/neurons) → PCA → sparse decomposition → ablation suite.
+- [x] Execute the full pipeline end-to-end on the chosen baseline LLM: representations → correctness direction → second-order tensors (for selected layers/neurons) → PCA → sparse decomposition → ablation suite. *(GPT-2 baseline complete via `phase3/run_phase3_gpt2.sh` in tmux on GPU 2; see `phase3_gpt2.log` for the transcript.)*
 - [ ] Record runtime, GPU memory, and intermediate tensor sizes to confirm the expected 90–150× speedups from neuron/layer sampling and single-pass hooks; if numbers deviate, log which optimization failed (`SUMMARY.md:114`).
 - [ ] Produce a metrics report capturing sparsity (% tasks per neuron), layer concentration (% total second-order mass inside the selected layers), variance explained by PC1, and accuracy drops when swapping in rank-1 reconstructions vs. mean ablations (`SUMMARY.md:148`).
 - [ ] Summarize qualitative findings: do OMP-derived math concepts correlate with activation triggers, and do identified neurons cleanly separate correct vs. incorrect trajectories? Save several case studies similar to the CLIP notebook visualizations but for text prompts.

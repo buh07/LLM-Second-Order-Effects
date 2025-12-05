@@ -108,7 +108,7 @@ def compute_batch_scores(
             continue
         ln_module = model.transformer.h[layer_idx].ln_1
         normalized = apply_layer_norm_linear(mlp_outputs, stats, ln_module)
-        attn_probs = hook.attn_maps[:, layer_idx]
+        attn_probs = hook.attn_maps[layer_idx]
         attn_module = model.transformer.h[layer_idx].attn
         attention_output = attention_to_final_token(normalized, attn_probs, attn_module, lengths)
         final_norm = apply_final_layer_norm(attention_output, hook.final_ln_stats, model.transformer.ln_f, lengths)
@@ -136,6 +136,12 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(args.model_name)
     model.to(device)
     model.eval()
+    if hasattr(model, "set_attn_implementation"):
+        model.set_attn_implementation("eager")
+    else:
+        model.config._attn_implementation = "eager"
+    model.config.output_attentions = True
+    model.config.use_cache = False
 
     neuron_indices = torch.tensor(select_neuron_indices(args, model), dtype=torch.long)
     direction = torch.from_numpy(np.load(args.correctness_direction)).to(device)
@@ -159,7 +165,6 @@ def main() -> None:
                 output_hidden_states=True,
                 use_cache=False,
             )
-        hook.set_attention_maps(list(model_outputs.attentions))
         batch_vectors, batch_scores = compute_batch_scores(
             model,
             hook,

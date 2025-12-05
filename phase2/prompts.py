@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from llm_datasets.math_dataset_loader import MathExample
 
 
-DEFAULT_PROMPT_TEMPLATE = "Solve the following problem:\n{problem}\nAnswer:"
+DEFAULT_PROMPT_TEMPLATE = (
+    "Solve the following problem and answer with just a number:\n{problem}\nAnswer:"
+)
 
 
 def build_inference_prompt(example: MathExample, template: str = DEFAULT_PROMPT_TEMPLATE) -> str:
@@ -42,4 +44,3 @@ class RecordMetadata:
     index: int
     prompt: str
     answer: str
-

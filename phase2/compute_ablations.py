@@ -76,7 +76,7 @@ def compute_second_order_vectors(
             continue
         ln_module = model.transformer.h[layer_idx].ln_1
         normalized = apply_layer_norm_linear(mlp_outputs, stats, ln_module)
-        attn_probs = hook.attn_maps[:, layer_idx]
+        attn_probs = hook.attn_maps[layer_idx]
         attn_module = model.transformer.h[layer_idx].attn
         attention_output = attention_to_final_token(normalized, attn_probs, attn_module, lengths)
         final_norm = apply_final_layer_norm(attention_output, hook.final_ln_stats, model.transformer.ln_f, lengths)
@@ -119,6 +119,12 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(args.model_name)
     model.to(args.device)
     model.eval()
+    if hasattr(model, "set_attn_implementation"):
+        model.set_attn_implementation("eager")
+    else:
+        model.config._attn_implementation = "eager"
+    model.config.output_attentions = True
+    model.config.use_cache = False
 
     direction = np.load(args.correctness_direction)
     labels = np.load(args.correctness_labels)[: len(examples)]
@@ -145,7 +151,6 @@ def main() -> None:
                 output_hidden_states=True,
                 use_cache=False,
             )
-        hook.set_attention_maps(list(outputs.attentions))
         contributions = compute_second_order_vectors(
             model,
             hook,
@@ -154,10 +159,10 @@ def main() -> None:
             outputs.hidden_states[-1][:, -1, :],
         )
         final_hidden = outputs.hidden_states[-1][:, -1, :].detach().cpu().numpy()
-        coeffs = np.einsum("bnh,nh->bn", contributions.cpu().numpy(), pca_vectors)
+        contrib_np = contributions.detach().cpu().numpy()
+        coeffs = np.einsum("bnh,nh->bn", contrib_np, pca_vectors)
         rank1_recon = coeffs[:, :, None] * pca_vectors[np.newaxis, :, :]
         mean_sum = mean_vectors.sum(axis=0)
-        contrib_np = contributions.cpu().numpy()
         contrib_sum = contrib_np.sum(axis=1)
 
         baseline_repr = args.coefficient * final_hidden

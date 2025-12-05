@@ -103,6 +103,12 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(args.model_name)
     model.to(device)
     model.eval()
+    if hasattr(model, "set_attn_implementation"):
+        model.set_attn_implementation("eager")
+    else:
+        model.config._attn_implementation = "eager"
+    model.config.output_attentions = True
+    model.config.use_cache = False
 
     neuron_indices = torch.tensor(select_neuron_indices(args, model), dtype=torch.long)
     hook = GptSecondOrderHook(model, args.mlp_layer, device)

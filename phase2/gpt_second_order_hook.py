@@ -33,7 +33,7 @@ class GptSecondOrderHook:
         self.post_activation: Optional[torch.Tensor] = None
         self.ln1_stats: List[Optional[LayerNormStats]] = [None] * self.num_layers
         self.final_ln_stats: Optional[LayerNormStats] = None
-        self.attn_maps: Optional[torch.Tensor] = None
+        self.attn_maps: List[Optional[torch.Tensor]] = [None] * self.num_layers
         self.seq_len: Optional[int] = None
         self.batch_size: Optional[int] = None
         self._register_hooks()
@@ -54,6 +54,10 @@ class GptSecondOrderHook:
                 self._store_final_ln_stats
             )
         )
+        for idx, block in enumerate(self.model.transformer.h):
+            self.handles.append(
+                block.attn.register_forward_hook(self._make_attention_logger(idx))
+            )
 
     def remove(self) -> None:
         for handle in self.handles:
@@ -66,7 +70,7 @@ class GptSecondOrderHook:
         self.post_activation = None
         self.ln1_stats = [None] * self.num_layers
         self.final_ln_stats = None
-        self.attn_maps = None
+        self.attn_maps = [None] * self.num_layers
 
     def _store_post_activation(self, _module, _inputs, output) -> None:
         self.post_activation = output.detach().to("cpu")
@@ -99,14 +103,18 @@ class GptSecondOrderHook:
             self.post_activation is not None
             and all(stat is not None for stat in self.ln1_stats)
             and self.final_ln_stats is not None
-            and self.attn_maps is not None
+            and all(attn is not None for attn in self.attn_maps)
         )
 
-    def set_attention_maps(self, attentions: List[torch.Tensor]) -> None:
-        """Cache attention probabilities from model outputs."""
+    def _make_attention_logger(self, layer_idx: int):
+        def hook(_module, _inputs, output):
+            attn_weights = output[1]
+            if attn_weights is None:
+                raise RuntimeError("Attention weights not available; ensure output_attentions=True")
+            self.attn_maps[layer_idx] = attn_weights.detach().to("cpu")
+            return output
 
-        stacked = torch.stack(attentions, dim=1)  # [batch, layers, heads, seq, seq]
-        self.attn_maps = stacked.detach().to("cpu")
+        return hook
 
     def to_device(self) -> None:
         """Move cached tensors to the hook device for downstream math."""
@@ -127,5 +135,6 @@ class GptSecondOrderHook:
                 mean=self.final_ln_stats.mean.to(self.device),
                 std=self.final_ln_stats.std.to(self.device),
             )
-        if self.attn_maps is not None:
-            self.attn_maps = self.attn_maps.to(self.device)
+        self.attn_maps = [
+            attn.to(self.device) if attn is not None else None for attn in self.attn_maps
+        ]

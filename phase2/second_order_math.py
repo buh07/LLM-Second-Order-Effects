@@ -29,11 +29,13 @@ def apply_layer_norm_linear(
 ) -> torch.Tensor:
     """Apply the linearized effect of layer norm to neuron contributions."""
 
-    std = stats.std.unsqueeze(2).clamp_min(1e-6)  # [B, T, 1, 1]
-    centered = tensor - tensor.mean(dim=-1, keepdim=True)
+    mean = stats.mean.unsqueeze(2)
+    std = stats.std.unsqueeze(2).clamp_min(1e-6)
+    centered = tensor - mean
     normalized = centered / std
     weight = layer_norm.weight.view(1, 1, 1, -1)
-    return normalized * weight
+    bias = layer_norm.bias.view(1, 1, 1, -1)
+    return normalized * weight + bias
 
 
 def attention_to_final_token(
@@ -88,11 +90,13 @@ def apply_final_layer_norm(
     batch_size = tensor.shape[0]
     device = tensor.device
     batch_idx = torch.arange(batch_size, device=device)
+    mean = stats.mean.to(device)[batch_idx, target_positions].unsqueeze(1)
     std = stats.std.to(device)[batch_idx, target_positions].unsqueeze(1).clamp_min(1e-6)
-    centered = tensor - tensor.mean(dim=-1, keepdim=True)
-    normalized = centered / std.unsqueeze(-1)
+    centered = tensor - mean
+    normalized = centered / std
     weight = layer_norm.weight.view(1, 1, -1)
-    return normalized * weight
+    bias = layer_norm.bias.view(1, 1, -1)
+    return normalized * weight + bias
 
 
 def project_to_direction(
@@ -102,4 +106,10 @@ def project_to_direction(
     """Project per-neuron contributions onto a direction vector."""
 
     direction = direction / direction.norm().clamp_min(1e-6)
+    if tensor.ndim > 3:
+        tensor = tensor.view(tensor.shape[0], tensor.shape[1], -1)
+    if tensor.shape[-1] != direction.shape[-1]:
+        raise ValueError(
+            f"Tensor hidden dimension {tensor.shape[-1]} does not match direction {direction.shape[-1]}"
+        )
     return torch.einsum("bnh,h->bn", tensor, direction)

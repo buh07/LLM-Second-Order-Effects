@@ -18,15 +18,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--datasets_root", type=str, default="datasets")
     parser.add_argument("--model_name", type=str, default="gpt2")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--sample_size", type=int, default=512, help="Limit on dataset size")
+    parser.add_argument("--sample_size", type=int, default=512, help="Limit on dataset size (0 = full dataset)")
     parser.add_argument("--max_new_tokens", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--shuffle",
+        action="store_true",
+        help="Shuffle dataset before sampling (useful for randomized evaluation subsets).",
+    )
+    parser.add_argument("--no-shuffle", dest="shuffle", action="store_false")
+    parser.set_defaults(shuffle=False)
     parser.add_argument("--output_dir", type=str, default="phase1_outputs")
     return parser.parse_args()
 
 
 def build_prompt(example: MathExample) -> str:
-    return f"Solve the following problem:\n{example.prompt}\nAnswer:"
+    return (
+        "Solve the following problem and answer with just a number:\n"
+        f"{example.prompt.strip()}\n"
+        "Answer:"
+    )
 
 
 def extract_numeric_answer(text: str) -> str:
@@ -95,8 +106,11 @@ def main() -> None:
 
     loader = MathDatasetLoader(args.datasets_root)
     data = loader.load(args.dataset, split=args.split)
-    if args.sample_size and args.sample_size < len(data):
-        data = random.sample(data, args.sample_size)
+    if args.shuffle:
+        random.seed(args.seed)
+        random.shuffle(data)
+    if args.sample_size and args.sample_size > 0:
+        data = data[: min(args.sample_size, len(data))]
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     if tokenizer.pad_token is None:
