@@ -1,0 +1,50 @@
+addition
+subtraction
+multiplication
+division
+fractions
+mixed numbers
+prime numbers
+composite numbers
+even numbers
+odd numbers
+greatest common divisor
+least common multiple
+simplify fractions
+decimal place value
+percent increase
+ratio reasoning
+unit conversion
+algebraic substitution
+solve for x
+two step equations
+inequalities
+number line comparison
+arithmetic series
+geometric patterns
+long multiplication
+long division
+borrowing in subtraction
+carrying in addition
+estimation
+rounding to tens
+order of operations
+parentheses handling
+factoring
+square numbers
+cube numbers
+area of rectangle
+area of triangle
+perimeter reasoning
+volume of cube
+volume of rectangular prism
+logic deduction
+if then reasoning
+contrapositive
+negation
+truth tables
+parity check
+error checking
+intermediate steps
+scratchpad reasoning
+answer justification

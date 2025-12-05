@@ -148,9 +148,102 @@ PYTHONPATH=. python phase2/compute_second_order_neuron_prs.py \
 
 Outputs:
 
-- `*_second_order_layer{L}.npy`: `[num_examples, num_neurons]` matrix of
-  correctness-projected second-order contributions.
+- `*_second_order_layer{L}.npy`: `[num_examples, num_neurons, hidden_dim]`
+  tensor of downstream contributions (already scaled/normalized).
+- `*_correctness_scores_layer{L}.npy`: scalar projection of each neuron onto the
+  correctness direction for quick diagnostics.
 - `*_second_order_meta.json`: configuration summary for reproducibility.
+
+## 8. Phase 2 – PCA on Neuron Effects
+
+`phase2/compute_pcas.py` mirrors the CLIP PCA stage, consuming the
+`*_second_order_layer{L}.npy` tensors and emitting per-neuron rank-1 bases plus
+norm statistics.
+
+```bash
+PYTHONPATH=. python phase2/compute_pcas.py \
+  --dataset mawps \
+  --split train \
+  --model_name gpt2 \
+  --mlp_layer 8 \
+  --input_dir phase2_outputs \
+  --output_dir phase2_outputs \
+  --top_k_pca 100
+```
+
+Outputs:
+
+- `*_layer{L}_{top_k}_pca.npy`: `[neurons, hidden_dim]` PCA directions.
+- `*_layer{L}_{top_k}_norm.npy`: sorted norms for significance thresholds.
+- `*_pca_meta.json`: run metadata for bookkeeping.
+
+## 9. Phase 2 – Math/Logic Lexicon Embeddings
+
+`phase2/compute_text_set_projection.py` embeds the curated math lexicon
+(`phase2/math_lexicon.txt`) using the same language model so that the existing
+`compute_sparse_decomposition.py` pipeline can consume them without changes.
+
+```bash
+PYTHONPATH=. python phase2/compute_text_set_projection.py \
+  --lexicon_path phase2/math_lexicon.txt \
+  --model_name gpt2 \
+  --output_dir phase2_outputs
+```
+
+Artifacts:
+
+- `math_lexicon_{model}.npy`: normalized embeddings scaled by the same
+  coefficient used elsewhere.
+- Matching `.json` metadata summarizing the lexicon and model configuration.
+
+## 10. Phase 2 – Sparse Decomposition
+
+`phase2/compute_sparse_decomposition.py` mirrors CLIP's stage with the new math
+lexicon. It consumes PCA vectors, lexicon embeddings, and optionally a validation
+tensor to report reconstruction accuracy via the `--evaluate` flag.
+
+```bash
+PYTHONPATH=. python phase2/compute_sparse_decomposition.py \
+  --dataset mawps \
+  --split train \
+  --model_name gpt2 \
+  --mlp_layer 8 \
+  --pca_path phase2_outputs/mawps_train_gpt2_layer8_100_pca.npy \
+  --text_embeddings_path phase2_outputs/math_lexicon_gpt2.npy \
+  --lexicon_path phase2/math_lexicon.txt \
+  --components 32 \
+  --evaluate \
+  --eval_second_order_path phase2_outputs/mawps_val_gpt2_layer8_second_order_layer8.npy \
+  --eval_labels_path phase2_outputs/mawps_val_gpt2_correctness_labels.npy \
+  --correctness_direction phase2_outputs/mawps_val_gpt2_correctness_direction.npy
+```
+
+Artifacts include sparse JSON/NPZ files and optional evaluation summaries logging
+relative reconstruction error plus the projected correctness accuracy drop.
+
+## 11. Phase 2 – Ablation Suite
+
+`phase2/compute_ablations.py` adapts the CLIP ablation logic. It re-runs the LLM
+with the second-order hook, edits the captured neuron contributions under several
+scenarios (mean replacement, removing significant/insignificant subsets,
+rank-1 substitution), and evaluates correctness by taking the dot product with
+the cached correctness direction.
+
+```bash
+PYTHONPATH=. python phase2/compute_ablations.py \
+  --dataset mawps \
+  --split val \
+  --model_name gpt2 \
+  --mlp_layer 8 \
+  --train_second_order_path phase2_outputs/mawps_train_gpt2_layer8_second_order_layer8.npy \
+  --pca_path phase2_outputs/mawps_train_gpt2_layer8_100_pca.npy \
+  --norm_path phase2_outputs/mawps_train_gpt2_layer8_100_norm.npy \
+  --correctness_direction phase2_outputs/mawps_val_gpt2_correctness_direction.npy \
+  --correctness_labels phase2_outputs/mawps_val_gpt2_correctness_labels.npy
+```
+
+The script writes a JSON report with baseline correctness accuracy (based on
+direction sign) and the deltas for each ablation policy.
 
 ## 7. Next Steps (Phase 2+)
 

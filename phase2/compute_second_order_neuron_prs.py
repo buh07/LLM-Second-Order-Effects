@@ -83,9 +83,10 @@ def compute_batch_scores(
     model,
     hook: GptSecondOrderHook,
     attention_mask: torch.Tensor,
-    correctness_direction: torch.Tensor,
     neuron_indices: torch.Tensor,
+    correctness_direction: torch.Tensor,
     coefficient: float,
+    final_hidden_states: torch.Tensor,
 ):
     if not hook.finalized():
         raise RuntimeError("Hook buffers not finalized before score computation.")
@@ -111,12 +112,15 @@ def compute_batch_scores(
         attn_module = model.transformer.h[layer_idx].attn
         attention_output = attention_to_final_token(normalized, attn_probs, attn_module, lengths)
         final_norm = apply_final_layer_norm(attention_output, hook.final_ln_stats, model.transformer.ln_f, lengths)
-        layer_scores = project_to_direction(final_norm, correctness_direction)
-        contributions.append(layer_scores)
+        contributions.append(final_norm)
     if not contributions:
-        return torch.zeros(batches, len(neuron_indices), device=hook.device)
-    stacked = torch.stack(contributions, dim=0).sum(dim=0)
-    return stacked * coefficient
+        summed = torch.zeros(batches, len(neuron_indices), model.config.hidden_size, device=hook.device)
+    else:
+        summed = torch.stack(contributions, dim=0).sum(dim=0)
+    final_norms = final_hidden_states.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+    scaled = summed * coefficient / final_norms.unsqueeze(-1)
+    scores = project_to_direction(scaled, correctness_direction)
+    return scaled, scores
 
 
 def main() -> None:
@@ -139,6 +143,7 @@ def main() -> None:
     hook = GptSecondOrderHook(model, args.mlp_layer, device, coefficient=args.coefficient)
 
     outputs = []
+    projected_scores = []
     output_dir = ensure_dir(args.output_dir)
     prefix = f"{args.dataset}_{args.split}_{clean_model_name(args.model_name)}_layer{args.mlp_layer}"
 
@@ -155,19 +160,23 @@ def main() -> None:
                 use_cache=False,
             )
         hook.set_attention_maps(list(model_outputs.attentions))
-        scores = compute_batch_scores(
+        batch_vectors, batch_scores = compute_batch_scores(
             model,
             hook,
             encoded["attention_mask"],
-            direction,
             neuron_indices,
+            direction,
             args.coefficient,
+            model_outputs.hidden_states[-1][:, -1, :],
         )
-        outputs.append(scores.detach().cpu().numpy())
+        outputs.append(batch_vectors.detach().cpu().numpy())
+        projected_scores.append(batch_scores.detach().cpu().numpy())
 
     merged = np.concatenate(outputs, axis=0)
     result_path = output_dir / f"{prefix}_second_order_layer{args.mlp_layer}.npy"
     np.save(result_path, merged)
+    score_path = output_dir / f"{prefix}_correctness_scores_layer{args.mlp_layer}.npy"
+    np.save(score_path, np.concatenate(projected_scores, axis=0))
 
     meta = {
         "dataset": args.dataset,
@@ -181,6 +190,7 @@ def main() -> None:
         "correctness_direction": args.correctness_direction,
         "neuron_indices_path": args.neuron_indices_path,
         "output": str(result_path),
+        "correctness_scores": str(score_path),
     }
     (output_dir / f"{prefix}_second_order_meta.json").write_text(json.dumps(meta, indent=2))
 
